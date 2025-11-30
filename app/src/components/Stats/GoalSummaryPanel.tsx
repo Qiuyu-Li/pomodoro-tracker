@@ -19,7 +19,6 @@ export const GoalSummaryPanel = () => {
   )
   const completedToday = todaysFocusSessions.filter((session) => session.progressPercent === 100).length
   const totalToday = todaysFocusSessions.length
-  const completionRate = totalToday ? Math.min(100, Math.round((completedToday / totalToday) * 100)) : 0
 
   const [isCelebrating, setIsCelebrating] = useState(false)
   const previousProgressRef = useRef<Map<string, number | undefined>>(new Map())

@@ -113,12 +113,13 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
       try {
         const title = segment.phase === 'focus' ? 'Focus block complete' : 'Break finished'
         const body = segment.phase === 'focus' ? 'Stand up, stretch, hydrate.' : 'Sit down and start focusing.'
-        new Notification(title, {
+        const options: NotificationOptions & { renotify?: boolean } = {
           body,
           tag: `pomodoro-${segment.id}`,
           renotify: true,
           silent: true,
-        })
+        }
+        new Notification(title, options)
       } catch (error) {
         console.warn('Unable to show notification.', error)
       }
