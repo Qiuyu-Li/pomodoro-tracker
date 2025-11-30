@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react'
 import type { PomodoroController } from '../../hooks/usePomodoroMachine'
+import type { NotificationStatus } from '../../hooks/usePomodoroController'
 import { msToClock } from '../../lib/time'
 
 interface TimerCardProps {
@@ -7,6 +8,9 @@ interface TimerCardProps {
   focusGoal: string
   onFocusGoalChange: (goal: string) => void
   onSegmentStart?: (goalSnapshot: string) => void
+  alertsEnabled: boolean
+  notificationStatus: NotificationStatus
+  onToggleAlerts: () => Promise<void>
 }
 
 const phaseLabel: Record<string, string> = {
@@ -18,8 +22,27 @@ const phaseLabel: Record<string, string> = {
 const clampMinutes = (value: number, min = 1, max = 90) =>
   Math.min(Math.max(value, min), max)
 
-export const TimerCard = ({ controller, focusGoal, onFocusGoalChange, onSegmentStart }: TimerCardProps) => {
-  const { state, preferences, start, pause, resume, skipToNext, completeAndLog, reset, updatePreferences, setAutoMode } = controller
+export const TimerCard = ({
+  controller,
+  focusGoal,
+  onFocusGoalChange,
+  onSegmentStart,
+  alertsEnabled,
+  notificationStatus,
+  onToggleAlerts,
+}: TimerCardProps) => {
+  const {
+    state,
+    preferences,
+    start,
+    pause,
+    resume,
+    logAndSkipToFocus,
+    completeAndLog,
+    reset,
+    updatePreferences,
+    setAutoMode,
+  } = controller
 
   const isRunning = state.isRunning
   const timerLabel = phaseLabel[state.phase] ?? 'Focus'
@@ -74,7 +97,7 @@ export const TimerCard = ({ controller, focusGoal, onFocusGoalChange, onSegmentS
         <button className="primary" onClick={handlePrimaryClick}>
           {primaryLabel}
         </button>
-        <button onClick={skipToNext}>Skip</button>
+        <button onClick={logAndSkipToFocus}>Log &amp; Skip</button>
         <button onClick={completeAndLog}>Log & End</button>
         <button onClick={reset}>Reset</button>
       </div>
@@ -88,6 +111,25 @@ export const TimerCard = ({ controller, focusGoal, onFocusGoalChange, onSegmentS
           />
           Auto cycle
         </label>
+      </div>
+      <div className="auto-toggle">
+        <label>
+          <input
+            type="checkbox"
+            checked={alertsEnabled}
+            onChange={() => {
+              void onToggleAlerts()
+            }}
+            disabled={notificationStatus === 'unsupported' || notificationStatus === 'denied'}
+          />
+          Sound
+        </label>
+        {notificationStatus === 'denied' ? (
+          <small className="text-muted">Enable browser notifications to hear alerts.</small>
+        ) : null}
+        {notificationStatus === 'unsupported' ? (
+          <small className="text-muted">This browser does not support notifications.</small>
+        ) : null}
       </div>
 
       <div className="timer-config">

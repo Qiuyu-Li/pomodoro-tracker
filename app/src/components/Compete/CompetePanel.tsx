@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useProfileStore } from '../../hooks/useProfileStore'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useSessionStore } from '../../hooks/useSessionStore'
-import type { SessionRecord } from '../../lib/types'
+import { useAuth } from '../../hooks/useAuth'
+import { useFriends } from '../../hooks/useFriends'
 import { buildUserFocusSnapshot, type UserFocusSnapshot } from '../../lib/analytics'
 
 type MetricDefinition = {
@@ -41,64 +41,126 @@ const emptySnapshot: UserFocusSnapshot = {
 }
 
 export const CompetePanel = () => {
-  const { sessions, loadSessionsForUser } = useSessionStore()
-  const { activeProfile, peerProfile } = useProfileStore()
-  const [peerSessions, setPeerSessions] = useState<SessionRecord[] | null>(null)
-  const [isLoadingPeer, setIsLoadingPeer] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    if (!peerProfile) {
-      setPeerSessions(null)
-      setIsLoadingPeer(false)
-      return () => {
-        cancelled = true
-      }
-    }
-
-    setIsLoadingPeer(true)
-    loadSessionsForUser(peerProfile.id)
-      .then((records) => {
-        if (cancelled) return
-        setPeerSessions(records)
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingPeer(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [peerProfile, loadSessionsForUser])
-
+  const { sessions } = useSessionStore()
+  const { user } = useAuth()
+  const {
+    shareCode,
+    friends,
+    selectedFriendId,
+    setSelectedFriendId,
+    isLoading: isLoadingFriends,
+    error: friendsError,
+    addFriend,
+  } = useFriends()
   const myStats = useMemo(() => buildUserFocusSnapshot(sessions), [sessions])
-  const friendStats = useMemo(
-    () => (peerSessions ? buildUserFocusSnapshot(peerSessions) : emptySnapshot),
-    [peerSessions],
-  )
+  const selectedFriend = friends.find((friend) => friend.id === selectedFriendId) ?? friends[0]
+  const friendStats = selectedFriend?.stats ?? emptySnapshot
+  const friendName = selectedFriend?.displayName ?? 'Invite a friend'
+  const [friendCode, setFriendCode] = useState('')
+  const [inviteStatus, setInviteStatus] = useState<string | null>(null)
+  const [isSubmittingFriend, setIsSubmittingFriend] = useState(false)
+
+  const competeStatus = !user
+    ? 'Sign in to compete'
+    : isLoadingFriends
+      ? 'Syncing friends...'
+      : friends.length
+        ? `Competing with ${friends.length === 1 ? selectedFriend?.displayName ?? 'a friend' : `${friends.length} friends`}`
+        : ''
+
+  const handleCopyShareCode = async () => {
+    if (!shareCode) return
+    try {
+      await navigator.clipboard.writeText(shareCode)
+      setInviteStatus('Share code copied')
+    } catch (error) {
+      console.error(error)
+      setInviteStatus('Could not copy share code')
+    }
+  }
+
+  const handleAddFriend = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!friendCode.trim()) return
+    setInviteStatus(null)
+    setIsSubmittingFriend(true)
+    try {
+      const friend = await addFriend(friendCode)
+      setInviteStatus(`Linked with ${friend.displayName}`)
+      setFriendCode('')
+    } catch (error) {
+      console.error(error)
+      setInviteStatus(error instanceof Error ? error.message : 'Failed to add friend')
+    } finally {
+      setIsSubmittingFriend(false)
+    }
+  }
 
   return (
     <div className="panel compete-panel">
       <div className="compete-header">
         <div>
           <h2>Compete</h2>
-          <p className="text-muted">
-            {peerProfile ? `Tracking you versus ${peerProfile.name}` : 'Add a teammate to compare stats.'}
-          </p>
+          <p className="text-muted">Invite teammates with your share code to compare focus momentum.</p>
         </div>
-        {peerProfile && (
-          <span className="compete-status">{isLoadingPeer ? 'Syncing…' : 'Live'}</span>
-        )}
+        <div className="compete-controls">
+          {friends.length > 1 && (
+            <select
+              aria-label="Select friend"
+              value={selectedFriendId ?? ''}
+              onChange={(event) => setSelectedFriendId(event.target.value || null)}
+            >
+              {friends.map((friend) => (
+                <option key={friend.id} value={friend.id}>
+                  {friend.displayName}
+                </option>
+              ))}
+            </select>
+          )}
+          {user ? (
+            <div className="compete-inline-invite">
+              <div className="compete-share__row">
+                <span className="compete-inline-label">Share your code to invite someone</span>
+                <code className="share-code">{shareCode ?? '--------'}</code>
+                <button type="button" onClick={handleCopyShareCode} disabled={!shareCode || isLoadingFriends}>
+                  Copy
+                </button>
+              </div>
+              <form className="compete-add" onSubmit={handleAddFriend}>
+                <div className="compete-add__row">
+                  <label className="compete-add__label" htmlFor="compete-add-code">Add friend</label>
+                  <input
+                    id="compete-add-code"
+                    type="text"
+                    placeholder="Enter share code"
+                    value={friendCode}
+                    onChange={(event) => setFriendCode(event.target.value.toUpperCase())}
+                    disabled={isLoadingFriends}
+                  />
+                  <button type="submit" disabled={!friendCode.trim() || isSubmittingFriend}>
+                    {isSubmittingFriend ? 'Adding…' : 'Add'}
+                  </button>
+                </div>
+              </form>
+              {(inviteStatus || friendsError) && (
+                <p className={`compete-invite__status ${friendsError ? 'text-error' : 'text-muted'}`}>
+                  {friendsError ?? inviteStatus}
+                </p>
+              )}
+              <span className="compete-inline-note">{competeStatus}</span>
+            </div>
+          ) : (
+            <span className="compete-status">{competeStatus}</span>
+          )}
+        </div>
       </div>
       <div className="compete-columns">
-        <CompeteColumn label="You" name={activeProfile.name} snapshot={myStats} />
+        <CompeteColumn label="You" name={user?.displayName ?? 'Guest'} snapshot={myStats} />
         <CompeteColumn
-          label={peerProfile ? 'Friend' : 'Teammate'}
-          name={peerProfile?.name ?? 'Not selected'}
-          snapshot={peerProfile ? friendStats : emptySnapshot}
-          isPlaceholder={!peerProfile}
+          label="Friend"
+          name={friendName}
+          snapshot={friendStats}
+          isPlaceholder={!friends.length}
         />
       </div>
     </div>

@@ -9,12 +9,11 @@ interface PageHeaderProps {
 
 export const PageHeader: FC<PageHeaderProps> = ({ themeLabel, onToggleTheme }) => (
   <header className="page-header">
-    <div>
-      <h1>PomodoroTracker</h1>
-      <p className="text-muted">Elegant, local-first rhythm for deep work.</p>
-    </div>
-    <div className="page-header__controls">
-      <ProfileSwitcher />
+    <div className="page-header__primary">
+      <div className="page-header__title">
+        <h1>PomodoroTracker</h1>
+        <p className="page-header__subtitle">Stay in rhythm, log every lap.</p>
+      </div>
       <nav className="page-nav">
         <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
           Rhythm
@@ -22,11 +21,21 @@ export const PageHeader: FC<PageHeaderProps> = ({ themeLabel, onToggleTheme }) =
         <NavLink to="/insights" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
           Insights
         </NavLink>
-        <button className="theme-toggle" onClick={onToggleTheme}>
-          Toggle {themeLabel === 'light' ? 'Dark' : 'Light'} Mode
-        </button>
       </nav>
     </div>
+      <div className="page-header__secondary">
+        <ProfileSwitcher />
+        <div className="page-header__utility">
+          <button
+            className="theme-toggle"
+            onClick={onToggleTheme}
+            aria-label={`Switch to ${themeLabel === 'light' ? 'dark' : 'light'} mode`}
+            type="button"
+          >
+            <span aria-hidden="true">{themeLabel === 'light' ? '🌙' : '☀️'}</span>
+          </button>
+        </div>
+      </div>
   </header>
 )
 

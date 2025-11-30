@@ -25,7 +25,8 @@ export const createSessionFromSegment = (
     goal: defaults?.goal ?? '',
     progressPercent: defaults?.progressPercent,
     focusLevel: defaults?.focusLevel,
-    comment: defaults?.comment ?? '',
+    note: defaults?.note ?? '',
+    distractions: defaults?.distractions ?? '',
     createdAt: new Date().toISOString(),
   }
 }

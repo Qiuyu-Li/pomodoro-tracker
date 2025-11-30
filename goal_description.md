@@ -147,3 +147,39 @@ npm run build
 ```
 npm run build
 ```
+
+## Project Update 11/28/2025 9:05 pm
+
+- Planned the first cloud-backed iteration: a standalone Node.js + Express server written in TypeScript with Prisma as the ORM. Default storage will use SQLite locally while keeping the schema portable to Postgres when deploying to Render/Railway.
+- Authentication flow: `POST /auth/signup` and `POST /auth/login` endpoints that store hashed passwords (bcrypt) and mint short-lived JWT access tokens plus refresh tokens for silent renewals. A lightweight `/me` route lets the client fetch profile metadata after login.
+- Session API: CRUD endpoints under `/sessions` scoped by the authenticated user, storing goal, project, duration, start/end timestamps, focus score, and comment. A derived `/stats/summary` route returns today/week totals and averages to power the Compete panel.
+- Infrastructure decisions: enable CORS for the Vite frontend, load secrets via `.env`, expose health checks, and include a deployment guide covering Prisma migrations + environment variables so future hosting on Render/Netlify Functions stays predictable.
+
+## Project Update 11/28/2025 9:48 pm
+
+- Scaffolded a dedicated `server/` workspace with TypeScript, Express, Zod, Prisma, and JWT tooling, plus `.env.example`, TS config, and npm scripts for `dev`, `build`, and Prisma workflows.
+- Defined the Prisma schema (SQLite locally, Postgres-ready) with `User` + `Session` models, generated the client, and wired a shared `PrismaClient` instance for route handlers.
+- Implemented auth routes (`/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/me`) with bcrypt hashing, typed token helpers, and JWT middleware guarding downstream APIs.
+- Added authenticated session CRUD under `/sessions` and a `/stats/summary` route that computes today/week totals + averages via date-fns helpers to keep the Compete view in sync once the frontend swaps to the API.
+- Authored `server/README.md` explaining env vars, commands, endpoints, and deployment steps (Render/Railway/Postgres) so publishing the backend stays straightforward.
+
+### Tests
+
+```
+(server) npm run build
+```
+
+## Project Update 11/28/2025 10:32 pm
+
+- Extended the backend session model with `phase` + `sourceSegmentId`, updated the Zod schemas, and applied a new Prisma migration so API payloads match the frontend’s `SessionRecord` shape.
+- Added `.env`/`.env.example` + Vite env typings on the frontend, introduced `lib/api.ts`, and built a new `AuthProvider` that handles signup/login/logout with token refresh + localStorage persistence.
+- Replaced the old multi-profile switcher with a real auth panel, rewired the session store to sync against `/sessions` (while keeping a guest IndexedDB fallback), and adjusted the Compete panel to focus on the signed-in user until multi-user sharing is ready.
+- Ran manual API smoke tests via `curl` (signup/login/session CRUD/stats) plus `npm run build` in both `server/` and `app/` to ensure the integrated stack compiles end-to-end.
+
+### Tests
+
+```
+(server) npm run build
+(app) npm run build
+curl signup/login/sessions/stats (recorded in console)
+```

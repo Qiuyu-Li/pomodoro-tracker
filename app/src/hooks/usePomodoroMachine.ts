@@ -5,6 +5,11 @@ import { minutesToMs } from '../lib/time'
 
 type SegmentEndReason = 'complete' | 'skipped' | 'manual-end'
 
+interface SegmentCompletionOptions {
+  nextPhase?: TimerPhase
+  autoRunOverride?: boolean
+}
+
 const createSegmentId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -99,7 +104,11 @@ export const usePomodoroMachine = (options?: {
   }
 
   const applySegmentCompletion = useCallback(
-    (current: MachineState, reason: SegmentEndReason): MachineState => {
+    (
+      current: MachineState,
+      reason: SegmentEndReason,
+      options?: SegmentCompletionOptions,
+    ): MachineState => {
       assignPendingEvent(current)
 
       const nextCompletedFocus =
@@ -107,14 +116,16 @@ export const usePomodoroMachine = (options?: {
           ? current.completedFocusBlocks + 1
           : current.completedFocusBlocks
 
-      const nextPhase = determineNextPhase(
-        current.phase,
-        nextCompletedFocus,
-        prefsRef.current,
-      )
+      const nextPhase =
+        options?.nextPhase ??
+        determineNextPhase(current.phase, nextCompletedFocus, prefsRef.current)
       const nextDuration = phaseDurationMs(nextPhase, prefsRef.current)
       const shouldAutoRun =
-        reason === 'complete' ? prefsRef.current.autoMode : false
+        typeof options?.autoRunOverride === 'boolean'
+          ? options.autoRunOverride
+          : reason === 'complete'
+            ? prefsRef.current.autoMode
+            : false
 
       return {
         ...current,
@@ -132,34 +143,54 @@ export const usePomodoroMachine = (options?: {
   )
 
   const finalizeSegment = useCallback(
-    (reason: SegmentEndReason) => {
-      setState((current) => applySegmentCompletion(current, reason))
+    (reason: SegmentEndReason, options?: SegmentCompletionOptions) => {
+      setState((current) => applySegmentCompletion(current, reason, options))
     },
     [applySegmentCompletion],
   )
 
+  const syncRemainingFromClock = useCallback(() => {
+    let shouldFinalize = false
+    setState((current) => {
+      if (!current.isRunning || current.segmentStartedAt == null) return current
+      const elapsed = Date.now() - current.segmentStartedAt
+      const remaining = Math.max(current.segmentDurationMs - elapsed, 0)
+      if (remaining <= 0) {
+        shouldFinalize = true
+        return current
+      }
+      if (Math.abs(remaining - current.remainingMs) < TICK_INTERVAL_MS / 2) {
+        return current
+      }
+      return { ...current, remainingMs: remaining }
+    })
+    if (shouldFinalize) {
+      const scheduleFinalization = () => finalizeSegment('complete')
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(scheduleFinalization)
+      } else {
+        setTimeout(scheduleFinalization, 0)
+      }
+    }
+  }, [finalizeSegment])
+
   useEffect(() => {
     if (!state.isRunning) return
-
-    const interval = window.setInterval(() => {
-      setState((current) => {
-        if (!current.isRunning) return current
-        const nextRemaining = current.remainingMs - TICK_INTERVAL_MS
-        if (nextRemaining <= 0) {
-          const scheduleFinalization = () => finalizeSegment('complete')
-          if (typeof queueMicrotask === 'function') {
-            queueMicrotask(scheduleFinalization)
-          } else {
-            setTimeout(scheduleFinalization, 0)
-          }
-          return current
-        }
-        return { ...current, remainingMs: nextRemaining }
-      })
-    }, TICK_INTERVAL_MS)
-
+    syncRemainingFromClock()
+    const interval = window.setInterval(syncRemainingFromClock, TICK_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [state.isRunning, finalizeSegment])
+  }, [state.isRunning, syncRemainingFromClock])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncRemainingFromClock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [syncRemainingFromClock])
 
   useEffect(() => {
     if (!pendingEventRef.current) return
@@ -171,28 +202,67 @@ export const usePomodoroMachine = (options?: {
   const start = useCallback(() => {
     setState((current) => {
       if (current.isRunning) return current
+      const elapsed = current.segmentDurationMs - current.remainingMs
       return {
         ...current,
         isRunning: true,
-        segmentStartedAt: current.segmentStartedAt ?? Date.now(),
+        segmentStartedAt: Date.now() - Math.max(elapsed, 0),
       }
     })
   }, [])
 
   const pause = useCallback(() => {
-    setState((current) => ({ ...current, isRunning: false }))
+    setState((current) => {
+      if (!current.isRunning) return current
+      const remaining =
+        current.segmentStartedAt != null
+          ? Math.max(current.segmentDurationMs - (Date.now() - current.segmentStartedAt), 0)
+          : current.remainingMs
+      return {
+        ...current,
+        isRunning: false,
+        remainingMs: remaining,
+        segmentStartedAt: null,
+      }
+    })
   }, [])
 
   const resume = useCallback(() => {
     setState((current) => {
       if (current.isRunning) return current
-      return { ...current, isRunning: true, segmentStartedAt: current.segmentStartedAt ?? Date.now() }
+      const elapsed = current.segmentDurationMs - current.remainingMs
+      return {
+        ...current,
+        isRunning: true,
+        segmentStartedAt: Date.now() - Math.max(elapsed, 0),
+      }
     })
   }, [])
 
   const skipToNext = useCallback(() => {
     finalizeSegment('skipped')
   }, [finalizeSegment])
+
+  const logAndSkipToFocus = useCallback(() => {
+    setState((current) => {
+      if (current.phase !== 'focus') {
+        const focusDuration = phaseDurationMs('focus', prefsRef.current)
+        return {
+          ...current,
+          phase: 'focus',
+          isRunning: true,
+          remainingMs: focusDuration,
+          segmentDurationMs: focusDuration,
+          segmentStartedAt: Date.now(),
+          segmentId: createSegmentId(),
+        }
+      }
+      return applySegmentCompletion(current, 'manual-end', {
+        nextPhase: 'focus',
+        autoRunOverride: true,
+      })
+    })
+  }, [applySegmentCompletion])
 
   const completeAndLog = useCallback(() => {
     finalizeSegment('manual-end')
@@ -225,6 +295,7 @@ export const usePomodoroMachine = (options?: {
     pause,
     resume,
     skipToNext,
+     logAndSkipToFocus,
     completeAndLog,
     reset,
     updatePreferences,

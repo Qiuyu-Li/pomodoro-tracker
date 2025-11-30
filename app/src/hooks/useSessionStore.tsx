@@ -11,207 +11,327 @@ import {
 import localforage from 'localforage'
 import type { SessionRecord, TimerSegmentEvent } from '../lib/types'
 import { createSessionFromSegment, deriveProjectSuggestions } from '../lib/sessions'
-import { useProfileStore } from './useProfileStore'
+import { apiFetch } from '../lib/api'
+import { useAuth } from './useAuth'
 
-const STORAGE_NAMESPACE = 'pomodoro-sessions'
-const storageKeyForUser = (userId: string) => `${STORAGE_NAMESPACE}:${userId}`
+interface SessionStoreValue {
+  sessions: SessionRecord[]
+  projects: string[]
+  isHydrated: boolean
+  addSessionFromSegment: (segment: TimerSegmentEvent, overrides?: Partial<SessionRecord>) => void
+  updateSession: (id: string, patch: Partial<SessionRecord>) => void
+  deleteSession: (id: string) => void
+  loadSessionsForUser: (userId: string) => Promise<SessionRecord[]>
+  reload: () => Promise<void>
+}
+
+interface ApiSessionPayload {
+  id: string
+  userId: string
+  phase: SessionRecord['phase']
+  sourceSegmentId: string | null
+  goal: string | null
+  project: string | null
+  durationMin: number
+  startTime: string
+  endTime: string
+  progress: number | null
+  focusScore: number | null
+  comment: string | null
+  createdAt: string
+  updatedAt: string
+}
 
 localforage.config({
   name: 'PomodoroTracker',
   storeName: 'sessionStore',
 })
 
-interface ImportPayload {
-  sessions?: SessionRecord[]
-}
-
-interface SessionStoreValue {
-  sessions: SessionRecord[]
-  projects: string[]
-  availableMonths: string[]
-  isHydrated: boolean
-  addSessionFromSegment: (segment: TimerSegmentEvent, overrides?: Partial<SessionRecord>) => void
-  updateSession: (id: string, patch: Partial<SessionRecord>) => void
-  deleteSession: (id: string) => void
-  exportMonth: (monthKey: string) => number
-  importFromFile: (file: File) => Promise<number>
-  loadSessionsForUser: (userId: string) => Promise<SessionRecord[]>
-}
+const GUEST_STORAGE_KEY = 'pomodoro-sessions:guest'
 
 const SessionStoreContext = createContext<SessionStoreValue | undefined>(undefined)
 
-const mergeSessions = (existing: SessionRecord[], incoming: SessionRecord[]) => {
-  if (!incoming || incoming.length === 0) return existing
-  const map = new Map(existing.map((record) => [record.id, record]))
-  incoming.forEach((record) => {
-    if (!record?.id) return
-    map.set(record.id, record)
-  })
-  return Array.from(map.values()).sort((a, b) => a.startTime.localeCompare(b.startTime))
+const COMMENT_DIVIDER = '|||DISTRACTIONS|||'
+
+type StoredSession = Omit<SessionRecord, 'note' | 'distractions'> & {
+  note?: string
+  distractions?: string
+  comment?: string | null
 }
 
-const downloadJson = (filename: string, data: unknown) => {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: 'application/json',
-  })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+const decodeComment = (raw?: string | null) => {
+  if (!raw) {
+    return { note: '', distractions: '' }
+  }
+  const [notePart, distractionsPart] = raw.split(COMMENT_DIVIDER)
+  return {
+    note: (notePart ?? '').trim(),
+    distractions: (distractionsPart ?? '').trim(),
+  }
 }
+
+const encodeComment = (note?: string, distractions?: string) => {
+  const safeNote = (note ?? '').trim()
+  const safeDistractions = (distractions ?? '').trim()
+  if (!safeDistractions) {
+    return safeNote
+  }
+  return `${safeNote}${COMMENT_DIVIDER}${safeDistractions}`
+}
+
+const ensureNoteFields = (record: StoredSession): SessionRecord => {
+  if (typeof record.note === 'string' || typeof record.distractions === 'string') {
+    return {
+      ...record,
+      note: record.note?.trim() ?? '',
+      distractions: record.distractions?.trim() ?? '',
+    }
+  }
+  const decoded = decodeComment(record.comment)
+  return {
+    ...record,
+    note: decoded.note,
+    distractions: decoded.distractions,
+  }
+}
+
+const mapApiSession = (session: ApiSessionPayload): SessionRecord => {
+  const decoded = decodeComment(session.comment ?? undefined)
+  return {
+    id: session.id,
+    phase: session.phase,
+    sourceSegmentId: session.sourceSegmentId ?? undefined,
+    startTime: session.startTime,
+    endTime: session.endTime,
+    durationMinutes: session.durationMin,
+    project: session.project ?? '',
+    goal: session.goal ?? '',
+    progressPercent: typeof session.progress === 'number' ? session.progress : undefined,
+    focusLevel: typeof session.focusScore === 'number' ? session.focusScore : undefined,
+    note: decoded.note,
+    distractions: decoded.distractions,
+    createdAt: session.createdAt,
+  }
+}
+
+const toApiPayload = (record: SessionRecord) => ({
+  phase: record.phase,
+  sourceSegmentId: record.sourceSegmentId,
+  goal: record.goal ?? '',
+  project: record.project ?? '',
+  durationMinutes: Math.max(1, Math.round(record.durationMinutes)),
+  startTime: record.startTime,
+  endTime: record.endTime,
+  progressPercent: record.progressPercent,
+  focusLevel: record.focusLevel,
+  comment: encodeComment(record.note, record.distractions),
+})
 
 export const SessionProvider = ({ children }: PropsWithChildren) => {
-  const { activeProfile } = useProfileStore()
+  const { user, ensureSession, getAccessToken } = useAuth()
+  const isGuest = !user
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
-  const hydratedRef = useRef(false)
-  const userId = activeProfile?.id ?? 'solo'
-  const storageKey = storageKeyForUser(userId)
+  const guestHydratedRef = useRef(false)
+
+  const requireToken = useCallback(async () => {
+    await ensureSession()
+    const token = getAccessToken()
+    if (!token) {
+      throw new Error('Please log in to sync sessions')
+    }
+    return token
+  }, [ensureSession, getAccessToken])
+
+  const loadGuestSessions = useCallback(async () => {
+    const stored = await localforage.getItem<StoredSession[]>(GUEST_STORAGE_KEY)
+    return (stored ?? []).map(ensureNoteFields)
+  }, [])
 
   useEffect(() => {
-    let mounted = true
+    let cancelled = false
     setIsHydrated(false)
-    hydratedRef.current = false
-    setSessions([])
-    const hydrate = async () => {
+    if (isGuest) {
+      guestHydratedRef.current = false
+      void loadGuestSessions().then((data) => {
+        if (cancelled) return
+        setSessions(data)
+        guestHydratedRef.current = true
+        setIsHydrated(true)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void (async () => {
       try {
-        const stored = await localforage.getItem<SessionRecord[]>(storageKey)
-        if (!mounted) return
-        setSessions(stored ?? [])
-      } finally {
-        if (mounted) {
-          hydratedRef.current = true
+        const token = await requireToken()
+        const response = await apiFetch<{ sessions: ApiSessionPayload[] }>('/sessions', {
+          accessToken: token,
+        })
+        if (!cancelled) {
+          setSessions(response.sessions.map(mapApiSession).sort((a, b) => a.startTime.localeCompare(b.startTime)))
+          setIsHydrated(true)
+        }
+      } catch (error) {
+        console.error(error)
+        if (!cancelled) {
+          setSessions([])
           setIsHydrated(true)
         }
       }
-    }
-    void hydrate()
-    return () => {
-      mounted = false
-    }
-  }, [storageKey])
+    })()
 
-  const commit = useCallback((updater: (prev: SessionRecord[]) => SessionRecord[]) => {
-    setSessions((prev) => {
-      const next = updater(prev)
-      if (hydratedRef.current) {
-        void localforage.setItem(storageKey, next)
-      }
-      return next
-    })
-  }, [storageKey])
+    return () => {
+      cancelled = true
+    }
+  }, [isGuest, loadGuestSessions, requireToken])
+
+  const persistGuestSessions = useCallback((next: SessionRecord[]) => {
+    guestHydratedRef.current = true
+    void localforage.setItem(GUEST_STORAGE_KEY, next)
+  }, [])
 
   const addSessionFromSegment = useCallback(
     (segment: TimerSegmentEvent, overrides?: Partial<SessionRecord>) => {
-      commit((prev) => {
-        const lastSession = prev.length > 0 ? prev[prev.length - 1] : undefined
-        const defaults = lastSession
-          ? { project: lastSession.project, goal: lastSession.goal }
-          : undefined
-        const mergedDefaults = (defaults || overrides)
-          ? { ...(defaults ?? {}), ...(overrides ?? {}) }
-          : undefined
-        const newRecord = createSessionFromSegment(segment, mergedDefaults)
-        return [...prev, newRecord]
-      })
+      const defaults = sessions.length ? sessions[sessions.length - 1] : undefined
+      const mergedDefaults = defaults
+        ? { project: defaults.project, goal: defaults.goal, ...(overrides ?? {}) }
+        : overrides
+      const newRecord = createSessionFromSegment(segment, mergedDefaults)
+
+      if (isGuest) {
+        setSessions((prev) => {
+          const next = [...prev, newRecord]
+          persistGuestSessions(next)
+          return next
+        })
+        return
+      }
+
+      void (async () => {
+        try {
+          const token = await requireToken()
+          const response = await apiFetch<{ session: ApiSessionPayload }>('/sessions', {
+            method: 'POST',
+            body: JSON.stringify(toApiPayload(newRecord)),
+            accessToken: token,
+          })
+          setSessions((prev) =>
+            prev.map((session) => (session.id === newRecord.id ? mapApiSession(response.session) : session)),
+          )
+        } catch (error) {
+          console.error('Failed to sync session', error)
+        }
+      })()
+
+      setSessions((prev) => [...prev, newRecord])
     },
-    [commit],
+    [sessions, isGuest, persistGuestSessions, requireToken],
   )
 
-  const updateSession = useCallback((id: string, patch: Partial<SessionRecord>) => {
-    commit((prev) =>
-      prev.map((session) =>
-        session.id === id
-          ? {
-              ...session,
-              ...patch,
-            }
-          : session,
-      ),
-    )
-  }, [commit])
+  const updateSession = useCallback(
+    (id: string, patch: Partial<SessionRecord>) => {
+      setSessions((prev) => prev.map((session) => (session.id === id ? { ...session, ...patch } : session)))
 
-  const deleteSession = useCallback((id: string) => {
-    commit((prev) => prev.filter((session) => session.id !== id))
-  }, [commit])
+      if (isGuest) {
+        const snapshot = sessions.map((session) => (session.id === id ? { ...session, ...patch } : session))
+        persistGuestSessions(snapshot)
+        return
+      }
 
-  const exportMonth = useCallback(
-    (monthKey: string) => {
-      const scoped = sessions.filter((session) => session.startTime.slice(0, 7) === monthKey)
-      if (scoped.length === 0) return 0
-      downloadJson(`pomodoro-sessions-${monthKey}.json`, {
-        month: monthKey,
-        generatedAt: new Date().toISOString(),
-        sessions: scoped,
-      })
-      return scoped.length
+      void (async () => {
+        try {
+          const token = await requireToken()
+          const existing = sessions.find((session) => session.id === id)
+          if (!existing) return
+          await apiFetch(`/sessions/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(toApiPayload({ ...existing, ...patch })),
+            accessToken: token,
+          })
+        } catch (error) {
+          console.error('Failed to update session', error)
+        }
+      })()
     },
-    [sessions],
+    [isGuest, persistGuestSessions, requireToken, sessions],
   )
 
-  const importFromFile = useCallback(async (file: File) => {
-    const text = await file.text()
-    const parsed = JSON.parse(text) as SessionRecord[] | ImportPayload
-    const payload = Array.isArray(parsed) ? parsed : parsed.sessions
-    if (!Array.isArray(payload)) {
-      throw new Error('Import file missing session data')
-    }
-
-    let normalized = payload.filter((session) => Boolean(session?.id && session?.startTime))
-    normalized = normalized.map((session) => ({
-      ...session,
-      durationMinutes: Number(session.durationMinutes) || 0,
-    }))
-
-    return await new Promise<number>((resolve) => {
-      commit((prev) => {
-        const merged = mergeSessions(prev, normalized)
-        resolve(merged.length - prev.length)
-        return merged
+  const deleteSession = useCallback(
+    (id: string) => {
+      setSessions((prev) => {
+        const next = prev.filter((session) => session.id !== id)
+        if (isGuest) {
+          persistGuestSessions(next)
+        }
+        return next
       })
-    })
-  }, [commit])
 
-  const loadSessionsForUser = useCallback(async (targetUserId: string) => {
-    const key = storageKeyForUser(targetUserId)
-    const stored = await localforage.getItem<SessionRecord[]>(key)
-    return stored ?? []
+      if (isGuest) {
+        return
+      }
+
+      void (async () => {
+        try {
+          const token = await requireToken()
+          await apiFetch(`/sessions/${id}`, {
+            method: 'DELETE',
+            accessToken: token,
+          })
+        } catch (error) {
+          console.error('Failed to delete session', error)
+        }
+      })()
+    },
+    [isGuest, persistGuestSessions, requireToken],
+  )
+
+  const loadSessionsForUser = useCallback(async () => {
+    console.warn('Peer comparisons are disabled while the server migration is in progress.')
+    return []
   }, [])
 
+  const reload = useCallback(async () => {
+    if (isGuest) {
+      const data = await loadGuestSessions()
+      setSessions(data)
+      return
+    }
+    try {
+      const token = await requireToken()
+      const response = await apiFetch<{ sessions: ApiSessionPayload[] }>('/sessions', {
+        accessToken: token,
+      })
+      setSessions(response.sessions.map(mapApiSession))
+    } catch (error) {
+      console.error(error)
+    }
+  }, [isGuest, loadGuestSessions, requireToken])
+
   const projects = useMemo(() => deriveProjectSuggestions(sessions), [sessions])
-  const availableMonths = useMemo(() => {
-    const months = sessions.map((session) => session.startTime.slice(0, 7))
-    return Array.from(new Set(months)).sort((a, b) => (a < b ? 1 : -1))
-  }, [sessions])
 
   const value = useMemo<SessionStoreValue>(
     () => ({
       sessions,
       projects,
-      availableMonths,
       isHydrated,
       addSessionFromSegment,
       updateSession,
       deleteSession,
-      exportMonth,
-      importFromFile,
       loadSessionsForUser,
+      reload,
     }),
     [
       sessions,
       projects,
-      availableMonths,
       isHydrated,
       addSessionFromSegment,
       updateSession,
       deleteSession,
-      exportMonth,
-      importFromFile,
       loadSessionsForUser,
+      reload,
     ],
   )
 

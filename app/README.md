@@ -6,7 +6,8 @@ Multi-profile focus timer with per-user session history, competition stats, and 
 
 - Track Pomodoro sessions with goals, project tags, and auto-resizing inputs.
 - Maintain multiple local profiles with isolated session storage and quick switching.
-- Compare against a selected rival in the Compete panel (today vs. week totals and averages).
+- Log in with the new auth panel to sync sessions to the Express/Prisma backend (guest mode still works offline).
+- Review focus insights in the Compete panel (friend slot placeholder until cloud sharing ships).
 - Persist data in IndexedDB via localforage; works fully offline.
 
 ## Development
@@ -59,3 +60,14 @@ netlify deploy --dir=dist        # requires Netlify CLI and auth
 ```
 
 Use `netlify deploy --prod --dir=dist` once you confirm the draft preview.
+
+## Connecting to the backend API
+
+The repo now ships with a TypeScript Express API under `server/` for real authentication + synced session storage.
+
+1. Follow `server/README.md` to copy `.env`, run Prisma migrations, and start the API (`npm run dev`).
+2. The frontend already reads `VITE_API_URL` from `app/.env` (see `.env.example`). Adjust this to point at your deployed API when you leave localhost.
+3. The header’s Profile area now includes login + signup. Once authenticated, all session mutations hit `/auth/*`, `/sessions`, and `/stats/summary` behind the scenes; guest mode falls back to a local IndexedDB cache.
+4. Deploy the API (Render/Railway) before pointing Netlify at the hosted URL so the login endpoint is reachable.
+
+Guest sessions remain fully usable offline, but they stay on the current device. Log in whenever you want those blocks synced to the backend.

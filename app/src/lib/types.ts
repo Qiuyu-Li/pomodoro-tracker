@@ -33,6 +33,7 @@ export interface SessionRecord {
   goal: string
   progressPercent?: number
   focusLevel?: number
-  comment?: string
+  note: string
+  distractions: string
   createdAt: string
 }
