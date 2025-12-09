@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_TIMER_PREFERENCES, TICK_INTERVAL_MS } from '../lib/constants'
-import type { TimerPhase, TimerPreferences, TimerSegmentEvent } from '../lib/types'
+import type {
+  SegmentEndReason,
+  TimerPhase,
+  TimerPreferences,
+  TimerSegmentEvent,
+} from '../lib/types'
 import { minutesToMs } from '../lib/time'
-
-type SegmentEndReason = 'complete' | 'skipped' | 'manual-end'
 
 interface SegmentCompletionOptions {
   nextPhase?: TimerPhase
@@ -88,7 +91,7 @@ export const usePomodoroMachine = (options?: {
     optionsRef.current = options
   }, [options])
 
-  const assignPendingEvent = (current: MachineState) => {
+  const assignPendingEvent = (current: MachineState, reason: SegmentEndReason) => {
     const elapsed = current.segmentDurationMs - Math.max(0, current.remainingMs)
     const endedAt = Date.now()
     const startedAt = current.segmentStartedAt ?? endedAt - elapsed
@@ -100,6 +103,7 @@ export const usePomodoroMachine = (options?: {
       endedAt,
       plannedDurationMs: current.segmentDurationMs,
       actualDurationMs: Math.max(elapsed, 0),
+      endReason: reason,
     }
   }
 
@@ -109,7 +113,7 @@ export const usePomodoroMachine = (options?: {
       reason: SegmentEndReason,
       options?: SegmentCompletionOptions,
     ): MachineState => {
-      assignPendingEvent(current)
+      assignPendingEvent(current, reason)
 
       const nextCompletedFocus =
         current.phase === 'focus'

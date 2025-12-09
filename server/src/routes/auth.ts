@@ -93,6 +93,7 @@ authRouter.post('/login', async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Invalid payload.', errors: error.flatten() });
     }
+    console.error('Signup failed:', error);
     return res.status(500).json({ message: 'Failed to login.' });
   }
 });

@@ -13,6 +13,8 @@ export interface TimerPreferences extends TimerDurations {
   notificationsEnabled: boolean
 }
 
+export type SegmentEndReason = 'complete' | 'skipped' | 'manual-end'
+
 export interface TimerSegmentEvent {
   id: string
   phase: TimerPhase
@@ -20,6 +22,7 @@ export interface TimerSegmentEvent {
   endedAt: number
   plannedDurationMs: number
   actualDurationMs: number
+  endReason: SegmentEndReason
 }
 
 export interface SessionRecord {

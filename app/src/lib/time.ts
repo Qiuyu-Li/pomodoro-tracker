@@ -8,3 +8,11 @@ export const msToClock = (ms: number) => {
     .toString()
     .padStart(2, '0')}`
 }
+
+export const getLocalDateKey = (iso: string) => {
+  const date = new Date(iso)
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}

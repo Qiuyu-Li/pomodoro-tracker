@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { useSessionStore } from '../../hooks/useSessionStore'
+import { getLocalDateKey } from '../../lib/time'
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   weekday: 'long',
@@ -12,9 +13,9 @@ const confettiElements = Array.from({ length: 18 })
 export const GoalSummaryPanel = () => {
   const { sessions } = useSessionStore()
   const today = new Date()
-  const todayKey = today.toISOString().slice(0, 10)
+  const todayKey = getLocalDateKey(today.toISOString())
   const todaysFocusSessions = useMemo(
-    () => sessions.filter((session) => session.phase === 'focus' && session.startTime.slice(0, 10) === todayKey),
+    () => sessions.filter((session) => session.phase === 'focus' && getLocalDateKey(session.startTime) === todayKey),
     [sessions, todayKey],
   )
   const completedToday = todaysFocusSessions.filter((session) => session.progressPercent === 100).length

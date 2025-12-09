@@ -21,7 +21,6 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "prisma": "^5.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -31,6 +30,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/ms": "^2.1.0",
     "@types/node": "^20.11.30",
+    "prisma": "^7.0.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.5"
   }

@@ -1028,10 +1028,71 @@
 }
 
 .session-cell--duration .session-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
   font-size: 1rem;
   font-weight: 400;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+}
+
+.session-duration input[type='number'] {
+  width: 72px;
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.session-duration input[type='number']:focus {
+  outline: none;
+  border-color: var(--accent-cta);
+  box-shadow: 0 0 0 2px var(--accent-cta-muted);
+}
+
+.project-dropdown {
+  margin-top: var(--space-8);
+}
+
+.project-dropdown__select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+
+.project-dropdown__select select {
+  width: 100%;
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: var(--space-6) var(--space-32) var(--space-6) var(--space-10);
+  appearance: none;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.project-dropdown__select svg {
+  position: absolute;
+  right: var(--space-10);
+  pointer-events: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .session-table input,
@@ -1043,9 +1104,10 @@
   background: transparent;
   color: var(--text-primary);
   font-size: 0.95rem;
+  resize: none;
 }
 
-.session-table input:focus,
+.session-table input:not([type='range']):focus,
 .session-table textarea:focus {
   outline: none;
   box-shadow: inset 0 -2px 0 var(--bg-emphasis);

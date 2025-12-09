@@ -24,7 +24,7 @@ interface PomodoroContextValue {
   controller: PomodoroController
   focusGoal: string
   setFocusGoal: (goal: string) => void
-  captureGoalForSegment: (goal: string) => void
+  primeAudio: () => Promise<void>
   alertsEnabled: boolean
   notificationStatus: NotificationStatus
   toggleAlerts: () => Promise<void>
@@ -34,8 +34,8 @@ const PomodoroContext = createContext<PomodoroContextValue | undefined>(undefine
 
 export const PomodoroProvider = ({ children }: PropsWithChildren) => {
   const { addSessionFromSegment } = useSessionStore()
-  const [focusGoal, setFocusGoal] = useState('')
-  const goalSnapshotRef = useRef('')
+  const [focusGoal, setFocusGoalState] = useState('')
+  const latestGoalRef = useRef('')
   const audioContextRef = useRef<AudioContext | null>(null)
   const prevRunStateRef = useRef({ segmentId: '', isRunning: false })
   const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window
@@ -50,6 +50,11 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
     }
   }, [notificationStatus])
 
+  const setFocusGoal = useCallback((nextGoal: string) => {
+    latestGoalRef.current = nextGoal
+    setFocusGoalState(nextGoal)
+  }, [])
+
   const ensureAudioContext = useCallback(async () => {
     if (typeof window === 'undefined') return null
     const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
@@ -59,6 +64,10 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
     await ctx.resume()
     return ctx
   }, [])
+
+  const primeAudio = useCallback(async () => {
+    await ensureAudioContext()
+  }, [ensureAudioContext])
 
   const playToneSequence = useCallback(
     async (sequence: ToneStep[]) => {
@@ -130,7 +139,7 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
   const handleSegmentFinish = useCallback(
     (segment: TimerSegmentEvent) => {
       if (segment.phase === 'focus') {
-        const goal = goalSnapshotRef.current.trim()
+        const goal = latestGoalRef.current.trim()
         const overrides = goal ? { goal } : undefined
         addSessionFromSegment(segment, overrides)
       }
@@ -165,10 +174,6 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
     prevRunStateRef.current = { segmentId, isRunning }
   }, [alertsEnabled, segmentId, isRunning, phase, playStartChime])
 
-  const captureGoalForSegment = useCallback((rawGoal: string) => {
-    goalSnapshotRef.current = rawGoal.trim()
-  }, [])
-
   const ensureNotificationPermission = useCallback(async (): Promise<NotificationStatus> => {
     if (!notificationsSupported) return 'unsupported'
     if (notificationStatus === 'default') {
@@ -196,7 +201,7 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
       controller,
       focusGoal,
       setFocusGoal,
-      captureGoalForSegment,
+      primeAudio,
       alertsEnabled,
       notificationStatus,
       toggleAlerts,
@@ -204,7 +209,7 @@ export const PomodoroProvider = ({ children }: PropsWithChildren) => {
     [
       controller,
       focusGoal,
-      captureGoalForSegment,
+      primeAudio,
       alertsEnabled,
       notificationStatus,
       toggleAlerts,

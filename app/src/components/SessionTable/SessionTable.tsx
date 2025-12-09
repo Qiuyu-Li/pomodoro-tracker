@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { toPng } from 'html-to-image'
 import { useSessionStore } from '../../hooks/useSessionStore'
+import { getLocalDateKey } from '../../lib/time'
 import type { SessionRecord } from '../../lib/types'
 
 const formatDate = (iso: string) =>
@@ -146,6 +147,7 @@ const SessionRow = ({ session, columnStyles }: { session: SessionRecord; columnS
   const projectRef = useRef<HTMLTextAreaElement | null>(null)
   const noteRef = useRef<HTMLTextAreaElement | null>(null)
   const distractionsRef = useRef<HTMLTextAreaElement | null>(null)
+  const [projectPickerValue, setProjectPickerValue] = useState('')
   const projectColors = getProjectColors(session.project)
   const projectSuggestions = useMemo(() => {
     if (!projects?.length) return []
@@ -186,6 +188,25 @@ const SessionRow = ({ session, columnStyles }: { session: SessionRecord; columnS
 
   const handleProjectSuggestion = (value: string) => {
     updateSession(session.id, { project: value })
+    setProjectPickerValue('')
+  }
+
+  const handleProjectPickerChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = event.target.value
+    if (!nextValue) return
+    handleProjectSuggestion(nextValue)
+  }
+
+  const durationValue = Number.isFinite(session.durationMinutes)
+    ? session.durationMinutes
+    : getRoundedDurationMinutes(session)
+
+  const handleDurationChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextValue = Number(event.target.value)
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      return
+    }
+    updateSession(session.id, { durationMinutes: nextValue })
   }
 
   return (
@@ -196,7 +217,20 @@ const SessionRow = ({ session, columnStyles }: { session: SessionRecord; columnS
         </div>
       </td>
       <td className="session-cell session-cell--duration" style={columnStyles.duration}>
-        <div className="session-duration">{formatDuration(getRoundedDurationMinutes(session))}</div>
+        <div className="session-duration">
+          <label htmlFor={`session-duration-${session.id}`} className="sr-only">
+            Duration in minutes
+          </label>
+          <input
+            id={`session-duration-${session.id}`}
+            type="number"
+            min={1}
+            step={1}
+            value={Math.round(durationValue)}
+            onChange={handleDurationChange}
+          />
+          <span aria-hidden="true">m</span>
+        </div>
       </td>
       <td className="session-cell session-cell--project" style={columnStyles.project}>
         <div
@@ -211,16 +245,25 @@ const SessionRow = ({ session, columnStyles }: { session: SessionRecord; columnS
             placeholder="Project"
           />
           {projectSuggestions.length > 0 && (
-            <div className="project-suggestions">
-              {projectSuggestions.map((suggestion) => (
-                <button
-                  type="button"
-                  key={suggestion}
-                  onClick={() => handleProjectSuggestion(suggestion)}
+            <div className="project-dropdown">
+              <div className="project-dropdown__select">
+                <select
+                  aria-label="Select previous project"
+                  title="Select previous project"
+                  value={projectPickerValue}
+                  onChange={handleProjectPickerChange}
                 >
-                  {suggestion}
-                </button>
-              ))}
+                  <option value="">&#8203;</option>
+                  {projectSuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion}>
+                      {suggestion}
+                    </option>
+                  ))}
+                </select>
+                <svg viewBox="0 0 12 8" aria-hidden="true" focusable="false">
+                  <path d="M1 1l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </div>
             </div>
           )}
         </div>
@@ -365,7 +408,7 @@ export const SessionTable = () => {
   const groupedSessions = useMemo(() => {
     const map = new Map<string, SessionRecord[]>()
     orderedSessions.forEach((session) => {
-      const dayKey = session.startTime.slice(0, 10)
+      const dayKey = getLocalDateKey(session.startTime)
       const bucket = map.get(dayKey)
       if (bucket) {
         bucket.push(session)

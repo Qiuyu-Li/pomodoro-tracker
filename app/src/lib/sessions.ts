@@ -13,6 +13,10 @@ export const createSessionFromSegment = (
 ): SessionRecord => {
   const startIso = new Date(segment.startedAt).toISOString()
   const endIso = new Date(segment.endedAt).toISOString()
+  const fullDurationMinutes = minutesFromMs(segment.plannedDurationMs)
+  const actualDurationMinutes = minutesFromMs(segment.actualDurationMs)
+  const durationMinutes =
+    segment.endReason === 'complete' ? fullDurationMinutes : actualDurationMinutes
 
   return {
     id: createRecordId(),
@@ -20,7 +24,7 @@ export const createSessionFromSegment = (
     sourceSegmentId: segment.id,
     startTime: startIso,
     endTime: endIso,
-    durationMinutes: minutesFromMs(segment.actualDurationMs),
+    durationMinutes,
     project: defaults?.project ?? '',
     goal: defaults?.goal ?? '',
     progressPercent: defaults?.progressPercent,

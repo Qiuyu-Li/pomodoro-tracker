@@ -7,7 +7,7 @@ interface TimerCardProps {
   controller: PomodoroController
   focusGoal: string
   onFocusGoalChange: (goal: string) => void
-  onSegmentStart?: (goalSnapshot: string) => void
+  onPrimeAudio?: () => Promise<void>
   alertsEnabled: boolean
   notificationStatus: NotificationStatus
   onToggleAlerts: () => Promise<void>
@@ -26,7 +26,7 @@ export const TimerCard = ({
   controller,
   focusGoal,
   onFocusGoalChange,
-  onSegmentStart,
+  onPrimeAudio,
   alertsEnabled,
   notificationStatus,
   onToggleAlerts,
@@ -62,12 +62,14 @@ export const TimerCard = ({
   }
 
   const handlePrimaryClick = () => {
+    if (!isRunning) {
+      void onPrimeAudio?.()
+    }
     if (isRunning) {
       pause()
     } else if (state.segmentStartedAt) {
       resume()
     } else {
-      onSegmentStart?.(focusGoal)
       start()
     }
   }
@@ -117,7 +119,10 @@ export const TimerCard = ({
           <input
             type="checkbox"
             checked={alertsEnabled}
-            onChange={() => {
+            onChange={(event) => {
+              if (event.target.checked) {
+                void onPrimeAudio?.()
+              }
               void onToggleAlerts()
             }}
             disabled={notificationStatus === 'unsupported' || notificationStatus === 'denied'}

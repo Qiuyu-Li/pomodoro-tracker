@@ -9,7 +9,7 @@ export const DashboardPage = () => {
     controller,
     focusGoal,
     setFocusGoal,
-    captureGoalForSegment,
+    primeAudio,
     alertsEnabled,
     notificationStatus,
     toggleAlerts,
@@ -23,7 +23,7 @@ export const DashboardPage = () => {
             controller={controller}
             focusGoal={focusGoal}
             onFocusGoalChange={setFocusGoal}
-            onSegmentStart={captureGoalForSegment}
+            onPrimeAudio={primeAudio}
             alertsEnabled={alertsEnabled}
             notificationStatus={notificationStatus}
             onToggleAlerts={toggleAlerts}
